@@ -498,7 +498,10 @@ scheduler(void)
           ratio = 100;
         }
 
-        if (best_p == 0 || ratio > max_ratio) {
+        // Tie-breaker: If ratios are tied (e.g. at arrival when W=0, ratio=100),
+        // pick the process with the smaller burst time (SJF tie-breaker)
+        if (best_p == 0 || ratio > max_ratio || 
+           (ratio == max_ratio && p->burst_time < best_p->burst_time)) {
           if (best_p)
             release(&best_p->lock);
           max_ratio = ratio;
