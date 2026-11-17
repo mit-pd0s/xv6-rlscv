@@ -101,6 +101,7 @@ int             kwait(uint64);
 void            wakeup(void*);
 void            yield(void);
 int             set_priority(int, int);
+int             get_priority(int);
 void            update_proc_aging(void);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);

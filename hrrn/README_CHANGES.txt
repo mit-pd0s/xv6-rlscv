@@ -61,10 +61,15 @@ e) Makefile:
    - Set `CPUS := 1`, added `$U/_hrrntest\`, and cleared `DETFLAGS`.
 
 f) user/hrrntest.c:
-   - Forks 4 processes: P1(Long=80), P2(Short=10), P3(Short=10), P4(Med=30).
-   - Short jobs complete early because their ratio increases quickly.
-   - Long jobs wait, steadily increasing their Wait Time (W), which naturally 
-     elevates their response ratio until they run and complete without starvation.
+   - Implements staggered arrival test demonstrating that HRRN is distinct from SJF and FCFS.
+   - Child 1 (BT=12) runs initially.
+   - Child 2 (BT=16) and Child 4 (BT=60) arrive early and wait while Child 1 runs.
+   - Child 3 (BT=6) arrives late with wait time ≈ 0.
+   - When Child 1 completes, Child 2's accumulated waiting time elevates its response
+     ratio above newly arrived Child 3 (R = 1.62 > 1.33), causing Child 2 to run FIRST.
+   - Under SJF, Child 3 (BT 6) would have cut in front of Child 2 (BT 16). HRRN prevents this.
+   - Child 3 subsequently runs before Child 4, proving it is not FCFS.
+   - Uses a pipe to report true chronological completion order.
 
 
 4. HOW TO COMPILE AND RUN

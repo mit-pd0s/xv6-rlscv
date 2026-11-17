@@ -111,7 +111,6 @@ sys_uptime(void)
   return xticks;
 }
 
-// Question 2: System call to set priority of a process
 uint64
 sys_set_priority(void)
 {
@@ -121,4 +120,13 @@ sys_set_priority(void)
   argint(0, &pid);
   argint(1, &priority);
   return set_priority(pid, priority);
+}
+
+uint64
+sys_get_priority(void)
+{
+  int pid;
+
+  argint(0, &pid);
+  return get_priority(pid);
 }

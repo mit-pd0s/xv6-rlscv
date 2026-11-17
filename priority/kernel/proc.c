@@ -125,7 +125,7 @@ found:
   p->pid = allocpid();
   p->state = USED;
 
-  // Question 2: Priority-based scheduler defaults
+  // Priority-based scheduler defaults:
   p->priority = 10;   // default priority = 10 (1 = highest, 20 = lowest)
   p->wait_ticks = 0;  // initial wait ticks
 
@@ -424,14 +424,7 @@ kwait(uint64 addr)
   }
 }
 
-// Per-CPU process scheduler.
-// Each CPU calls scheduler() after setting itself up.
-// Scheduler never returns.  It loops, doing:
-//  - choose a process to run.
-//  - swtch to start running that process.
-//  - eventually that process transfers control
-//    via swtch back to the scheduler.
-// Question 2: System call support to change process priority (1 = highest, 20 = lowest)
+// Priority-based scheduler support functions
 int
 set_priority(int pid, int new_priority)
 {
@@ -453,7 +446,25 @@ set_priority(int pid, int new_priority)
   return -1;
 }
 
-// Question 2: Aging mechanism called on timer interrupt
+int
+get_priority(int pid)
+{
+  struct proc *p;
+  for (p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if (p->pid == pid || (pid == 0 && p == myproc())) {
+      int prio = p->priority;
+      release(&p->lock);
+      return prio;
+    }
+    release(&p->lock);
+  }
+  return -1;
+}
+
+// Aging mechanism called on timer interrupt:
+// If a RUNNABLE process waits for > 30 ticks without running,
+// raise its priority (decrement priority number) and reset wait_ticks.
 void
 update_proc_aging(void)
 {
@@ -464,7 +475,10 @@ update_proc_aging(void)
       p->wait_ticks++;
       if (p->wait_ticks > 30) {
         if (p->priority > 1) {
+          int old_prio = p->priority;
           p->priority--; // Raise priority (1 = highest)
+          printk("[Kernel Aging] PID %d waited > 30 ticks: Priority boosted %d -> %d\n",
+                 p->pid, old_prio, p->priority);
         }
         p->wait_ticks = 0;
       }
@@ -497,7 +511,7 @@ scheduler(void)
     intr_on();
     intr_off();
 
-    // Question 2: Priority-based Preemptive Scheduler with Aging
+    // Priority-based Preemptive Scheduler with Aging
     // Step 1: Find the minimum priority number among all RUNNABLE processes
     int min_prio = 21;
     for (p = proc; p < &proc[NPROC]; p++) {
@@ -508,7 +522,7 @@ scheduler(void)
       release(&p->lock);
     }
 
-    // Step 2: Pick next RUNNABLE process with min_prio starting after last_idx (Round-Robin)
+    // Step 2: Pick next RUNNABLE process with min_prio starting after last_idx (Round-Robin tie breaking)
     struct proc *best_p = 0;
     if (min_prio <= 20) {
       for (int i = 0; i < NPROC; i++) {

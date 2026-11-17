@@ -475,7 +475,10 @@ update_proc_aging(void)
       p->wait_ticks++;
       if (p->wait_ticks > 30) {
         if (p->priority > 1) {
+          int old_prio = p->priority;
           p->priority--; // Raise priority (1 = highest)
+          printk("[Kernel Aging] PID %d waited > 30 ticks: Priority boosted %d -> %d\n",
+                 p->pid, old_prio, p->priority);
         }
         p->wait_ticks = 0;
       }

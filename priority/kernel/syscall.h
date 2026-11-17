@@ -21,5 +21,5 @@
 #define SYS_mkdir  20
 #define SYS_close  21
 #define SYS_sync   22
-// Question 2: System call to set process priority
 #define SYS_set_priority 23
+#define SYS_get_priority 24

@@ -52,11 +52,12 @@ d) Anti-Starvation Aging:
   * Set CPUS := 1 to demonstrate clean single-core scheduling order.
   * Added $U/_priotest to UPROGS.
 - user/priotest.c:
-  * Forks 4 processes with initial priorities: 5 (High), 8 (Med-High),
-    12 (Med-Low), and 20 (Lowest).
-  * Measures execution progress, reports current priority during execution
-    (showing dynamic aging up from 12 -> 11 and 20 -> 19), and confirms strict
-    priority completion order.
+  * Forks 4 processes in REVERSE priority order: Child 1 (Prio 20), Child 2 (Prio 12),
+    Child 3 (Prio 8), Child 4 (Prio 5).
+  * Child 4 (Prio 5, forked LAST) runs FIRST, disproving FCFS.
+  * Real-time kernel aging logs print on console as wait_ticks exceeds 30.
+  * Measures effective aged priority upon start and uses a pipe to report true
+    chronological completion order with aged levels.
 
 3. HOW TO BUILD AND RUN
 --------------------------------------------------------------------------------
@@ -73,37 +74,61 @@ To exit QEMU:
 --------------------------------------------------------------------------------
 $ priotest
 ============================================================
- Priority Preemptive Scheduler with Aging (Anti-Starvation) 
+ Priority Preemptive Scheduler with Dynamic Aging Test     
+ Priorities: 1 = Highest, 20 = Lowest. Default = 10         
+ Aging Rule: After > 30 ticks waiting, Priority decreases by 1
 ============================================================
-Parent PID: 3
-Forking 4 CPU-bound processes with priorities:
-  Child 1: Priority 5 (High)
-  Child 2: Priority 8 (Medium-High)
-  Child 3: Priority 12 (Medium-Low)
-  Child 4: Priority 20 (Lowest)
+Parent PID: 3 at tick 2
 
-[Parent] All children forked. Waiting for completion...
+Forking 4 processes in REVERSE priority order:
+  Child 1: Forked 1st -> Priority 20 (Lowest)
+  Child 2: Forked 2nd -> Priority 12 (Medium-Low)
+  Child 3: Forked 3rd -> Priority 8  (Medium-High)
+  Child 4: Forked 4th -> Priority 5  (Highest)
 
-[Child 1 | PID 4] Starting execution at tick 2 (Initial: 5, Current: 5)
-[Child 1 | PID 4] 50% Workload Done (Initial: 5 -> Current: 5, tick: 11)
-[Child 1 | PID 4] Workload Completed! (Initial: 5 -> Final: 5, tick: 21)
-[Child 2 | PID 5] Starting execution at tick 21 (Initial: 8, Current: 8)
-[Child 2 | PID 5] 50% Workload Done (Initial: 8 -> Current: 8, tick: 31)
-[Child 2 | PID 5] Workload Completed! (Initial: 8 -> Final: 8, tick: 40)
->> Completion Order 1: PID 4 (Child 1, Initial Priority 5)
->> Completion Order 2: PID 5 (Child 2, Initial Priority 8)
-[Child 3 | PID 6] Starting execution at tick 41 (Initial: 12, Current: 11)
-[Child 3 | PID 6] 50% Workload Done (Initial: 12 -> Current: 11, tick: 50)
-[Child 3 | PID 6] Workload Completed! (Initial: 12 -> Final: 11, tick: 60)
->> Completion Order 3: PID 6 (Child 3, Initial Priority 12)
-[Child 4 | PID 7] Starting execution at tick 60 (Initial: 20, Current: 19)
-[Child 4 | PID 7] 50% Workload Done (Initial: 20 -> Current: 19, tick: 70)
-[Child 4 | PID 7] Workload Completed! (Initial: 20 -> Final: 19, tick: 79)
->> Completion Order 4: PID 7 (Child 4, Initial Priority 20)
+Under FCFS: Execution order would be Child 1 -> 2 -> 3 -> 4.
+Under Priority Preemptive: Child 4 (Prio 5) MUST run FIRST!
+
+[Parent] Forked Child 1 (PID 4) assigned Priority 20
+[Parent] Forked Child 2 (PID 5) assigned Priority 12
+[Parent] Forked Child 3 (PID 6) assigned Priority 8
+[Parent] Forked Child 4 (PID 7) assigned Priority 5
+
+[Parent] All 4 children forked. Monitoring execution & aging...
+
+[Child 4 | PID 7] Started at tick 2 (Initial Prio: 5, Effective Prio: 5)
+[Kernel Aging] PID 4 waited > 30 ticks: Priority boosted 20 -> 19
+[Kernel Aging] PID 5 waited > 30 ticks: Priority boosted 12 -> 11
+[Kernel Aging] PID 6 waited > 30 ticks: Priority boosted 8 -> 7
+[Child 4 | PID 7] COMPLETED at tick 37 (Initial: 5 -> Final: 5)
+[Child 3 | PID 6] Started at tick 37 (Initial Prio: 8, Effective Prio: 7)
+[Kernel Aging] PID 4 waited > 30 ticks: Priority boosted 19 -> 18
+[Kernel Aging] PID 5 waited > 30 ticks: Priority boosted 11 -> 10
+[Child 3 | PID 6] COMPLETED at tick 72 (Initial: 8 -> Final: 7)
+
+>> Completion Order 1: PID 7 (Child 4, Init Prio: 5, Final Prio: 5, Ran: tick 2 to 37) [Unchanged]
+
+>> Completion Order 2: PID 6 (Child 3, Init Prio: 8, Final Prio: 7, Ran: tick 37 to 72) [AGED UP BY 1 LEVELS!]
+[Child 2 | PID 5] Started at tick 72 (Initial Prio: 12, Effective Prio: 10)
+[Child 2 | PID 5] COMPLETED at tick 92 (Initial: 12 -> Final: 10)
+
+>> Completion Order 3: PID 5 (Child 2, Init Prio: 12, Final Prio: 10, Ran: tick 72 to 92) [AGED UP BY 2 LEVELS!]
+[Child 1 | PID 4] Started at tick 92 (Initial Prio: 20, Effective Prio: 18)
+[Child 1 | PID 4] COMPLETED at tick 107 (Initial: 20 -> Final: 18)
+
+>> Completion Order 4: PID 4 (Child 1, Init Prio: 20, Final Prio: 18, Ran: tick 92 to 107) [AGED UP BY 2 LEVELS!]
 
 ============================================================
-Test Summary:
-1. Preemption & Priority: Higher priority processes (5, 8) completed first.
-2. Anti-Starvation Aging: Lower priority processes (12, 20) had priority boosted
-   dynamically as wait_ticks exceeded 30, preventing starvation.
+Test Summary & Proof:
+1. Priority Preemption Verified (NOT FCFS):
+   - Child 4 (PID 7, Prio 5) was forked LAST, but completed FIRST!
+   - Child 1 (PID 4, Prio 20) was forked FIRST, but completed LAST!
+   - The completion order is the exact REVERSE of fork order, proving priority scheduling.
+
+2. Anti-Starvation Dynamic Aging Verified:
+   - Real-time kernel aging logs confirmed wait-tick thresholds (> 30 ticks).
+   - Child 3 (PID 6): Waited while higher priorities ran; aged from 8 -> 7!
+   - Child 2 (PID 5): Waited while higher priorities ran; aged from 12 -> 10!
+   - Child 1 (PID 4): Waited while higher priorities ran; aged from 20 -> 18!
+   - Lowest priority process (Initial Prio 20) was never starved and finished cleanly.
 ============================================================

@@ -1,95 +1,134 @@
 ================================================================================
-OPERATING SYSTEM LAB ASSIGNMENT 3 - QUESTION 2
-Priority-Based Preemptive Scheduler with Aging
+Priority-Based Preemptive Scheduler with Aging in xv6
 ================================================================================
 
-1. OVERVIEW
+1. OVERVIEW & OBJECTIVES
 --------------------------------------------------------------------------------
-This implementation introduces a priority-based preemptive scheduler with starvation
-prevention via an aging mechanism in xv6. Processes have priority values from 
-1 (highest) to 20 (lowest). The scheduler always picks the lowest numerical 
-priority value, breaking ties using Round-Robin. If a RUNNABLE process waits for 
-more than 30 ticks without running, aging raises its priority by 1.
+This implementation replaces the default xv6 round-robin scheduler with a
+Priority-Based Preemptive Scheduler with Anti-Starvation Aging:
+a) Priorities range from 1 (highest) to 20 (lowest). Default priority is 10.
+b) System calls:
+   - int set_priority(int pid, int priority): Sets the priority of the target
+     process (or current process if pid == 0) and resets its wait counter.
+   - int get_priority(int pid): Returns the current effective priority.
+c) Preemptive Scheduling:
+   scheduler() always selects the RUNNABLE process with the lowest priority
+   number (highest priority). Ties are broken using Round-Robin order.
+d) Anti-Starvation Aging:
+   Every clock tick (clockintr()), wait_ticks is incremented for all RUNNABLE
+   processes. If any RUNNABLE process waits for more than 30 ticks without
+   running (wait_ticks > 30), its priority number is decremented by 1 (raising
+   its priority, bounded at 1), and its wait_ticks is reset to 0. When a process
+   is scheduled, its wait_ticks is also reset to 0.
 
-
-2. SUMMARY OF MODIFIED & ADDED FILES
+2. FILES MODIFIED & ADDED
 --------------------------------------------------------------------------------
-- kernel/proc.h       : Added priority (default 10) and wait_ticks to struct proc
-- kernel/defs.h       : Declared set_priority() and update_proc_aging()
-- kernel/proc.c       : Initialized priority & wait_ticks in allocproc(), reset in freeproc(),
-                        implemented set_priority(), update_proc_aging(), and
-                        Round-Robin tie-breaking priority scheduler()
-- kernel/trap.c       : Called update_proc_aging() inside clockintr() on CPU 0;
-                        kept timer yield() enabled for preemptive scheduling
-- kernel/syscall.h    : Defined SYS_set_priority (23)
-- kernel/syscall.c    : Wired sys_set_priority into syscalls table
-- kernel/sysproc.c    : Implemented sys_set_priority() argument parsing
-- user/user.h         : Declared set_priority(int, int) user function
-- user/usys.pl        : Added entry("set_priority") to generate syscall assembly
-- Makefile            : Added $U/_priotest to UPROGS, set CPUS := 1,
-                        cleared DETFLAGS for space-safe build path
-- user/priotest.c     : [NEW] User test program verifying priority order & aging
+- kernel/proc.h:
+  * Added int priority (1 to 20, default 10) to struct proc.
+  * Added uint wait_ticks to track time spent waiting in RUNNABLE state.
+- kernel/proc.c:
+  * allocproc(): Initialized p->priority = 10, p->wait_ticks = 0.
+  * freeproc(): Reset p->priority = 10, p->wait_ticks = 0.
+  * set_priority(pid, new_prio): Validates priority bounds (1..20), sets
+    priority, and resets wait_ticks.
+  * get_priority(pid): Looks up and returns process priority.
+  * update_proc_aging(): Scans proc table, increments wait_ticks for RUNNABLE
+    processes, decrements priority number when wait_ticks > 30, and resets wait_ticks.
+  * scheduler(): Scans all RUNNABLE processes to find the minimum priority number,
+    then round-robin selects the next RUNNABLE process with that minimum priority,
+    resets its wait_ticks to 0, and context-switches to it.
+- kernel/trap.c:
+  * In clockintr() on CPU 0: Calls update_proc_aging() on every timer interrupt.
+- kernel/syscall.h & kernel/syscall.c:
+  * Registered SYS_set_priority (23) and SYS_get_priority (24).
+- kernel/sysproc.c:
+  * Added sys_set_priority() and sys_get_priority().
+- kernel/defs.h:
+  * Declared set_priority, get_priority, and update_proc_aging.
+- user/user.h & user/usys.pl:
+  * Exported set_priority() and get_priority() to user space.
+- Makefile:
+  * Set DETFLAGS = empty to support paths containing spaces.
+  * Set CPUS := 1 to demonstrate clean single-core scheduling order.
+  * Added $U/_priotest to UPROGS.
+- user/priotest.c:
+  * Forks 4 processes in REVERSE priority order: Child 1 (Prio 20), Child 2 (Prio 12),
+    Child 3 (Prio 8), Child 4 (Prio 5).
+  * Child 4 (Prio 5, forked LAST) runs FIRST, disproving FCFS.
+  * Real-time kernel aging logs print on console as wait_ticks exceeds 30.
+  * Measures effective aged priority upon start and uses a pipe to report true
+    chronological completion order with aged levels.
 
-
-3. DETAILED CODE CHANGES
+3. HOW TO BUILD AND RUN
 --------------------------------------------------------------------------------
-a) kernel/proc.h:
-   - Added `int priority;` (range 1–20, default 10).
-   - Added `uint wait_ticks;` to count elapsed ticks waiting in RUNNABLE state.
+From this directory:
+    $ make qemu
 
-b) kernel/proc.c:
-   - In `allocproc()`: Set `p->priority = 10;` and `p->wait_ticks = 0;`.
-   - In `freeproc()`: Reset `p->priority = 10;` and `p->wait_ticks = 0;`.
-   - Implemented `int set_priority(int pid, int priority)`:
-     Validates priority is between 1 and 20; searches process table by PID;
-     updates priority and resets `wait_ticks = 0`; returns previous priority.
-   - Implemented `void update_proc_aging(void)`:
-     Iterates through `proc` table; for every process with `state == RUNNABLE`,
-     increments `p->wait_ticks++`. If `wait_ticks > 30`, decrements `p->priority--`
-     (raising priority, bounded at 1) and resets `wait_ticks = 0`.
-   - In `scheduler()`:
-     Finds minimum priority number (`min_prio`) among all `RUNNABLE` processes.
-     Selects next `RUNNABLE` process with `priority == min_prio` starting from
-     `last_idx + 1` (Round-Robin tie-breaking). Resets `wait_ticks = 0` upon running.
+Inside xv6 shell:
+    $ priotest
 
-c) kernel/trap.c:
-   - In `clockintr()`: Calls `update_proc_aging()` on CPU 0 every timer tick.
-   - Kept `yield()` on timer interrupts in `usertrap()` and `kerneltrap()` so
-     scheduling remains fully preemptive.
+To exit QEMU:
+    Press Ctrl-A then x
 
-d) System Calls:
-   - Wired `set_priority(pid, priority)` through `syscall.h`, `syscall.c`,
-     `sysproc.c`, `user.h`, and `usys.pl`.
-
-e) Makefile:
-   - Set `CPUS := 1`, added `$U/_priotest\`, and cleared `DETFLAGS`.
-
-f) user/priotest.c:
-   - Forks 4 processes with distinct priorities: 5 (High), 8 (Med-High), 12 (Med-Low), 20 (Lowest).
-   - Each process runs CPU-bound loops and logs progress.
-   - Verifies high-priority processes finish first and low-priority process runs due to aging.
-
-
-4. HOW TO COMPILE AND RUN
+4. VERIFIED TEST OUTPUT LOG
 --------------------------------------------------------------------------------
-Step 1: Open a terminal and navigate to this folder:
-        cd "/home/udit/Desktop/os lab/priority"
+$ priotest
+============================================================
+ Priority Preemptive Scheduler with Dynamic Aging Test     
+ Priorities: 1 = Highest, 20 = Lowest. Default = 10         
+ Aging Rule: After > 30 ticks waiting, Priority decreases by 1
+============================================================
+Parent PID: 3 at tick 2
 
-Step 2: Compile and launch xv6 inside QEMU:
-        make qemu
+Forking 4 processes in REVERSE priority order:
+  Child 1: Forked 1st -> Priority 20 (Lowest)
+  Child 2: Forked 2nd -> Priority 12 (Medium-Low)
+  Child 3: Forked 3rd -> Priority 8  (Medium-High)
+  Child 4: Forked 4th -> Priority 5  (Highest)
 
-Step 3: Inside the xv6 shell, run the test program:
-        $ priotest
+Under FCFS: Execution order would be Child 1 -> 2 -> 3 -> 4.
+Under Priority Preemptive: Child 4 (Prio 5) MUST run FIRST!
 
-Step 4: Exit QEMU:
-        Press Ctrl-A, release both keys, then press X.
+[Parent] Forked Child 1 (PID 4) assigned Priority 20
+[Parent] Forked Child 2 (PID 5) assigned Priority 12
+[Parent] Forked Child 3 (PID 6) assigned Priority 8
+[Parent] Forked Child 4 (PID 7) assigned Priority 5
 
+[Parent] All 4 children forked. Monitoring execution & aging...
 
-5. EXPECTED OUTCOME
---------------------------------------------------------------------------------
-- Child with priority 5 finishes first.
-- Child with priority 8 finishes second.
-- Child with priority 12 finishes third.
-- Child with lowest initial priority (20) gets scheduled via aging and finishes
-  without indefinite starvation.
-================================================================================
+[Child 4 | PID 7] Started at tick 2 (Initial Prio: 5, Effective Prio: 5)
+[Kernel Aging] PID 4 waited > 30 ticks: Priority boosted 20 -> 19
+[Kernel Aging] PID 5 waited > 30 ticks: Priority boosted 12 -> 11
+[Kernel Aging] PID 6 waited > 30 ticks: Priority boosted 8 -> 7
+[Child 4 | PID 7] COMPLETED at tick 37 (Initial: 5 -> Final: 5)
+[Child 3 | PID 6] Started at tick 37 (Initial Prio: 8, Effective Prio: 7)
+[Kernel Aging] PID 4 waited > 30 ticks: Priority boosted 19 -> 18
+[Kernel Aging] PID 5 waited > 30 ticks: Priority boosted 11 -> 10
+[Child 3 | PID 6] COMPLETED at tick 72 (Initial: 8 -> Final: 7)
+
+>> Completion Order 1: PID 7 (Child 4, Init Prio: 5, Final Prio: 5, Ran: tick 2 to 37) [Unchanged]
+
+>> Completion Order 2: PID 6 (Child 3, Init Prio: 8, Final Prio: 7, Ran: tick 37 to 72) [AGED UP BY 1 LEVELS!]
+[Child 2 | PID 5] Started at tick 72 (Initial Prio: 12, Effective Prio: 10)
+[Child 2 | PID 5] COMPLETED at tick 92 (Initial: 12 -> Final: 10)
+
+>> Completion Order 3: PID 5 (Child 2, Init Prio: 12, Final Prio: 10, Ran: tick 72 to 92) [AGED UP BY 2 LEVELS!]
+[Child 1 | PID 4] Started at tick 92 (Initial Prio: 20, Effective Prio: 18)
+[Child 1 | PID 4] COMPLETED at tick 107 (Initial: 20 -> Final: 18)
+
+>> Completion Order 4: PID 4 (Child 1, Init Prio: 20, Final Prio: 18, Ran: tick 92 to 107) [AGED UP BY 2 LEVELS!]
+
+============================================================
+Test Summary & Proof:
+1. Priority Preemption Verified (NOT FCFS):
+   - Child 4 (PID 7, Prio 5) was forked LAST, but completed FIRST!
+   - Child 1 (PID 4, Prio 20) was forked FIRST, but completed LAST!
+   - The completion order is the exact REVERSE of fork order, proving priority scheduling.
+
+2. Anti-Starvation Dynamic Aging Verified:
+   - Real-time kernel aging logs confirmed wait-tick thresholds (> 30 ticks).
+   - Child 3 (PID 6): Waited while higher priorities ran; aged from 8 -> 7!
+   - Child 2 (PID 5): Waited while higher priorities ran; aged from 12 -> 10!
+   - Child 1 (PID 4): Waited while higher priorities ran; aged from 20 -> 18!
+   - Lowest priority process (Initial Prio 20) was never starved and finished cleanly.
+============================================================
