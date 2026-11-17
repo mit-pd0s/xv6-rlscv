@@ -21,10 +21,13 @@ void sync_thread_worker(void *arg) {
   for (int i = 0; i < INCREMENTS_PER_THREAD; i++) {
     // Synchronized Critical Section using Semaphore
     sem_wait(SEM_COUNTER);
-    volatile int val = counter;
-    for (volatile int d = 0; d < 3; d++);
-    counter = val + 1;
+    counter++;
     sem_signal(SEM_COUNTER);
+
+    if ((i + 1) % 25000 == 0) {
+      printf("[Thread %d (pid %d)] Progress: %d / %d increments\n",
+             id, getpid(), i + 1, INCREMENTS_PER_THREAD);
+    }
   }
 
   printf("Thread %d (pid %d) finished %d synchronized increments.\n",

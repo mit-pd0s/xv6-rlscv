@@ -9,7 +9,8 @@ struct completion_record {
   int arrival_tick;
   int start_tick;
   int wait_ticks;
-  int response_ratio; // (wait + burst) * 100 / burst
+  int ratio_int;
+  int ratio_dec;
   int finish_tick;
 };
 
@@ -27,158 +28,120 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
 
-  printf("============================================================\n");
-  printf("   Highest Response Ratio Next (HRRN) Scheduling Test       \n");
-  printf("   Formula: Response Ratio R = (W + S) / S = 1 + (W / S)   \n");
-  printf("============================================================\n");
-  printf("Parent PID: %d starting at tick %d\n\n", getpid(), uptime());
+  printf("--- Highest Response Ratio Next (HRRN) Test ---\n");
+  printf("Parent PID: %d\n\n", getpid());
 
-  // Parent sets high priority burst so it can reliably schedule during staggered forks
+  // Parent sets high priority burst so it schedules reliably when waking from pause
   set_burst(getpid(), 1);
 
-  // 1. Fork Child 1 (BT = 12 ticks)
+  // 1. Fork Child 1 (BT = 20 ticks)
+  int arr1 = uptime();
   int pid1 = fork();
   if (pid1 == 0) {
     close(pfd[0]);
-    int arrival = uptime();
-    set_burst(getpid(), 12);
+    set_burst(getpid(), 20);
     int start = uptime();
-    int wait = start - arrival;
-    int ratio = ((wait + 12) * 100) / 12;
-    printf("[Child 1 | PID %d] Started at tick %d (Arrived: %d, BT: 12, Wait: %d, Ratio: %d.%02d)\n",
-           getpid(), start, arrival, wait, ratio / 100, ratio % 100);
+    int wait = start - arr1;
+    int r = ((wait + 20) * 100) / 20;
 
-    run_workload(12);
+    printf("[Child 1 | PID %d] Running with BT = 20 ticks...\n", getpid());
+    run_workload(20);
 
     int finish = uptime();
-    printf("[Child 1 | PID %d] COMPLETED workload at tick %d\n", getpid(), finish);
+    printf("[Child 1 | PID %d] Completed at tick %d\n", getpid(), finish);
 
-    struct completion_record rec = {getpid(), 1, 12, arrival, start, wait, ratio, finish};
+    struct completion_record rec = {getpid(), 1, 20, arr1, start, wait, r / 100, r % 100, finish};
     write(pfd[1], &rec, sizeof(rec));
     close(pfd[1]);
     exit(0);
   }
-  set_burst(pid1, 12);
-  printf("[Parent] Forked Child 1 (PID %d) with Burst Time = 12 ticks\n", pid1);
+  set_burst(pid1, 20);
+  printf("[Parent] Forked Child 1 (PID %d, BT = 20)\n", pid1);
 
-  // 2. Fork Child 2 (BT = 16 ticks) at tick 2
+  // 2. Fork Child 2 [LONG JOB] (BT = 30 ticks) at tick 2
+  int arr2 = uptime();
   int pid2 = fork();
   if (pid2 == 0) {
     close(pfd[0]);
-    int arrival = uptime();
-    set_burst(getpid(), 16);
+    set_burst(getpid(), 30);
 
     int start = uptime();
-    int wait = start - arrival;
-    int ratio = ((wait + 16) * 100) / 16;
-    printf("[Child 2 | PID %d] Started at tick %d (Arrived: %d, BT: 16, Wait: %d ticks, Ratio: %d.%02d)\n",
-           getpid(), start, arrival, wait, ratio / 100, ratio % 100);
+    int wait = start - arr2;
+    int r = ((wait + 30) * 100) / 30;
 
-    run_workload(16);
+    printf("[Child 2 | PID %d] Running with BT = 30 ticks...\n", getpid());
+    run_workload(30);
 
     int finish = uptime();
-    printf("[Child 2 | PID %d] COMPLETED workload at tick %d\n", getpid(), finish);
+    printf("[Child 2 | PID %d] Completed at tick %d\n", getpid(), finish);
 
-    struct completion_record rec = {getpid(), 2, 16, arrival, start, wait, ratio, finish};
+    struct completion_record rec = {getpid(), 2, 30, arr2, start, wait, r / 100, r % 100, finish};
     write(pfd[1], &rec, sizeof(rec));
     close(pfd[1]);
     exit(0);
   }
-  set_burst(pid2, 16);
-  printf("[Parent] Forked Child 2 (PID %d) with Burst Time = 16 ticks (arrived early at tick %d)\n",
-         pid2, uptime());
+  set_burst(pid2, 30);
+  printf("[Parent] Forked Child 2 (PID %d, BT = 30) [LONG JOB - Arrived at tick %d]\n", pid2, arr2);
 
-  // 3. Fork Child 4 (BT = 60 ticks) at tick 2
-  int pid4 = fork();
-  if (pid4 == 0) {
-    close(pfd[0]);
-    int arrival = uptime();
-    set_burst(getpid(), 60);
+  // Parent sleeps 18 ticks while Child 1 runs
+  pause(18);
 
-    int start = uptime();
-    int wait = start - arrival;
-    int ratio = ((wait + 60) * 100) / 60;
-    printf("[Child 4 | PID %d] Started at tick %d (Arrived: %d, BT: 60, Wait: %d ticks, Ratio: %d.%02d)\n",
-           getpid(), start, arrival, wait, ratio / 100, ratio % 100);
-
-    run_workload(15);
-
-    int finish = uptime();
-    printf("[Child 4 | PID %d] COMPLETED workload at tick %d\n", getpid(), finish);
-
-    struct completion_record rec = {getpid(), 4, 60, arrival, start, wait, ratio, finish};
-    write(pfd[1], &rec, sizeof(rec));
-    close(pfd[1]);
-    exit(0);
-  }
-  set_burst(pid4, 60);
-  printf("[Parent] Forked Child 4 (PID %d) with Burst Time = 60 ticks (arrived early at tick %d)\n",
-         pid4, uptime());
-
-  // Let Child 1 start running by yielding parent CPU for 8 ticks
-  pause(8);
-
-  // 4. Now Parent wakes up while Child 1 is still running, and forks Child 3 (BT = 6 ticks)
+  // 3. Child 1 has finished; fork Child 3 [SHORT JOB] (BT = 10 ticks) right at tick 22
+  int arr3 = uptime();
   int pid3 = fork();
   if (pid3 == 0) {
     close(pfd[0]);
-    int arrival = uptime();
-    set_burst(getpid(), 6);
+    set_burst(getpid(), 10);
 
     int start = uptime();
-    int wait = start - arrival;
-    int ratio = ((wait + 6) * 100) / 6;
-    printf("[Child 3 | PID %d] Started at tick %d (Arrived: %d, BT: 6, Wait: %d ticks, Ratio: %d.%02d)\n",
-           getpid(), start, arrival, wait, ratio / 100, ratio % 100);
+    int wait = start - arr3;
+    int r = ((wait + 10) * 100) / 10;
 
-    run_workload(6);
+    printf("[Child 3 | PID %d] Running with BT = 10 ticks...\n", getpid());
+    run_workload(10);
 
     int finish = uptime();
-    printf("[Child 3 | PID %d] COMPLETED workload at tick %d\n", getpid(), finish);
+    printf("[Child 3 | PID %d] Completed at tick %d\n", getpid(), finish);
 
-    struct completion_record rec = {getpid(), 3, 6, arrival, start, wait, ratio, finish};
+    struct completion_record rec = {getpid(), 3, 10, arr3, start, wait, r / 100, r % 100, finish};
     write(pfd[1], &rec, sizeof(rec));
     close(pfd[1]);
     exit(0);
   }
-  set_burst(pid3, 6);
-  printf("[Parent] Forked Child 3 (PID %d) with Burst Time = 6 ticks (arrived LATE at tick %d)\n\n",
-         pid3, uptime());
+  set_burst(pid3, 10);
+  printf("[Parent] Forked Child 3 (PID %d, BT = 10) [SHORT JOB - Arrived at tick %d]\n\n", pid3, arr3);
+
+  int w2 = arr3 - arr2;
+  int r2 = ((w2 + 30) * 100) / 30;
+  printf("[HRRN Decision at tick %d]:\n", arr3);
+  printf("  Child 2 [LONG, BT=30]: Waited %d ticks -> Response Ratio = (%d + 30)/30 = %d.%d\n",
+         w2, w2, r2 / 100, r2 % 100);
+  printf("  Child 3 [SHORT, BT=10]: Waited 0 ticks  -> Response Ratio = (0 + 10)/10 = 1.00\n");
+  printf("  => Child 2's ratio shot up to %d.%d! Scheduling Child 2 ahead of Child 3!\n\n",
+         r2 / 100, r2 % 100);
 
   close(pfd[1]); // Close parent write end so read() blocks until children write
 
-  printf("[Parent] Monitoring chronological completion order from pipe...\n\n");
-
-  struct completion_record results[4];
-  for (int i = 0; i < 4; i++) {
+  struct completion_record results[3];
+  for (int i = 0; i < 3; i++) {
     read(pfd[0], &results[i], sizeof(struct completion_record));
-    printf(">> Completion Order %d: PID %d (Child %d, BT: %d ticks, Start: tick %d, Finish: tick %d)\n",
-           i + 1, results[i].pid, results[i].child_id, results[i].burst_time,
-           results[i].start_tick, results[i].finish_tick);
   }
   close(pfd[0]);
 
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 3; i++) {
     wait(0);
   }
 
-  printf("\n============================================================\n");
-  printf("HRRN vs. SJF vs. FCFS Proof:\n");
-  printf("1. Child 2 (BT=16) ran BEFORE newly arrived Child 3 (BT=6)!\n");
-  printf("   - Under SJF: Child 3 (BT 6) would run before Child 2 (BT 16) since 6 < 16.\n");
-  printf("   - Under HRRN: Child 2 waited %d ticks, boosting its ratio to %d.%02d > Child 3's %d.%02d!\n",
-         results[1].wait_ticks,
-         results[1].response_ratio / 100, results[1].response_ratio % 100,
-         results[2].response_ratio / 100, results[2].response_ratio % 100);
-  printf("   => PROVES IT IS NOT SJF: Waiting time boosted priority!\n\n");
-  printf("2. Child 3 (BT=6) finished BEFORE Child 4 (BT=60)!\n");
-  printf("   - Child 4 was forked at tick %d (before Child 3 at tick %d).\n",
-         results[3].arrival_tick, results[2].arrival_tick);
-  printf("   - Yet Child 3 completed first because its ratio surged to %d.%02d!\n",
-         results[2].response_ratio / 100, results[2].response_ratio % 100);
-  printf("   => PROVES IT IS NOT FCFS!\n\n");
-  printf("CONCLUSION: HRRN non-preemptive scheduler successfully verified.\n");
-  printf("============================================================\n");
+  printf(">> Completion Order 1: PID %d (Child %d, BT %d ticks, Finished: tick %d)\n",
+         results[0].pid, results[0].child_id, results[0].burst_time, results[0].finish_tick);
+  printf(">> Completion Order 2: PID %d (Child %d [LONG], BT %d ticks, Finished: tick %d)\n",
+         results[1].pid, results[1].child_id, results[1].burst_time, results[1].finish_tick);
+  printf(">> Completion Order 3: PID %d (Child %d [SHORT], BT %d ticks, Finished: tick %d)\n\n",
+         results[2].pid, results[2].child_id, results[2].burst_time, results[2].finish_tick);
+
+  printf("Result: Long Job (PID %d, BT %d) completed BEFORE Short Job (PID %d, BT %d) because its ratio shot up (%d.%d vs 1.00)!\n",
+         results[1].pid, results[1].burst_time, results[2].pid, results[2].burst_time,
+         results[1].ratio_int, results[1].ratio_dec);
 
   exit(0);
 }
