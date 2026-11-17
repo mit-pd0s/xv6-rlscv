@@ -66,10 +66,12 @@ e) Makefile:
    - Set `CPUS := 1`, added `$U/_srtftest\`, and cleared `DETFLAGS`.
 
 f) user/srtftest.c:
-   - Forks 3 processes with staggered arrival: P1(Long=30), P2(Med=15), P3(Short=5).
-   - P1 starts executing first. P2 arrives with smaller remaining time and preempts P1.
-   - P3 arrives with even smaller remaining time and preempts P2.
-   - P3 finishes first, P2 finishes second, and P1 finishes last.
+   - Forks 3 processes with simulated staggered arrival via pause():
+     * P1 (Long = 12 ticks, starts at tick 0).
+     * P2 (Medium = 6 ticks, arrives at tick 3 -> PREEMPTS P1).
+     * P3 (Short = 2 ticks, arrives at tick 5 -> PREEMPTS P2).
+   - P3 completes 1st, P2 resumes and completes 2nd, P1 resumes and completes 3rd.
+   - Records true chronological completion order via a pipe.
 
 
 4. HOW TO COMPILE AND RUN
@@ -89,8 +91,8 @@ Step 4: Exit QEMU:
 
 5. EXPECTED OUTCOME
 --------------------------------------------------------------------------------
-- Child 3 (Short, BT=5) completes 1st.
-- Child 2 (Medium, BT=15) completes 2nd.
-- Child 1 (Long, BT=30) completes 3rd.
+- Child 3 (Short, BT=2) completes 1st.
+- Child 2 (Medium, BT=6) completes 2nd.
+- Child 1 (Long, BT=12) completes 3rd.
 Newly arrived shorter jobs successfully preempt longer running jobs.
 ================================================================================

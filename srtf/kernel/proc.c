@@ -464,7 +464,7 @@ srtf_timer_tick(void)
   if (curr->remaining_time > 0) {
     curr->remaining_time--;
   }
-  int curr_rem = (curr->remaining_time > 0) ? curr->remaining_time : 0x7fffffff;
+  int curr_rem = (curr->burst_time > 0) ? curr->remaining_time : 0x7fffffff;
   release(&curr->lock);
 
   // Check if any other RUNNABLE process has strictly smaller remaining_time
@@ -475,7 +475,7 @@ srtf_timer_tick(void)
       continue;
     acquire(&p->lock);
     if (p->state == RUNNABLE) {
-      int p_rem = (p->remaining_time > 0) ? p->remaining_time : 0x7fffffff;
+      int p_rem = (p->burst_time > 0) ? p->remaining_time : 0x7fffffff;
       if (p_rem < curr_rem) {
         should_preempt = 1;
         release(&p->lock);
@@ -519,7 +519,7 @@ scheduler(void)
     for (p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if (p->state == RUNNABLE) {
-        int eff_rem = (p->remaining_time > 0) ? p->remaining_time : 0x7fffffff;
+        int eff_rem = (p->burst_time > 0) ? p->remaining_time : 0x7fffffff;
         if (best_p == 0 || eff_rem < min_rem) {
           if (best_p)
             release(&best_p->lock);
