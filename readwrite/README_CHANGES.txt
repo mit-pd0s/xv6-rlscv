@@ -34,9 +34,11 @@ Policy Implemented: Readers-Preference
       detects active readers / multiple writers.
 
 - Kernel Semaphores:
-  1. SEM_MUTEX (ID 0): Binary semaphore (initialized to 1) protecting read_count updates.
-  2. SEM_WRT   (ID 1): Binary semaphore (initialized to 1) providing exclusive access to writers
-                       and mutual exclusion between the reader group and writers.
+  1. SEM_MUTEX     (ID 0): Binary semaphore (initialized to 1) protecting read_count updates.
+  2. SEM_WRT       (ID 1): Binary semaphore (initialized to 1) providing exclusive access to writers
+                           and mutual exclusion between the reader group and writers.
+  3. SEM_TURNSTILE (ID 2): Binary semaphore (initialized to 1) implementing fair turnstile to
+                           prevent writer starvation and race conditions.
 
 3. FILES MODIFIED / ADDED
 -------------------------

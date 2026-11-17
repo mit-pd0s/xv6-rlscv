@@ -7,8 +7,9 @@
 #define READS_PER_READER 5
 #define WRITES_PER_WRITER 5
 
-#define SEM_MUTEX 0
-#define SEM_WRT   1
+#define SEM_MUTEX     0
+#define SEM_WRT       1
+#define SEM_TURNSTILE 2
 
 struct rw_shared {
   int shared_data;
@@ -23,7 +24,8 @@ void reader(struct rw_shared *sh, int id) {
   printf("Reader %d started (pid %d)\n", id, getpid());
 
   for (int i = 0; i < READS_PER_READER; i++) {
-    // Entry section
+    // Entry section (Turnstile pattern ensures fairness & prevents writer starvation)
+    sem_wait(SEM_TURNSTILE);
     sem_wait(SEM_MUTEX);
     sh->read_count++;
     if (sh->read_count == 1) {
@@ -34,6 +36,7 @@ void reader(struct rw_shared *sh, int id) {
       sh->max_readers_seen = cur_readers;
     }
     sem_post(SEM_MUTEX);
+    sem_post(SEM_TURNSTILE);
 
     // Reading Critical Section
     if (sh->active_writers > 0) {
@@ -65,7 +68,8 @@ void writer(struct rw_shared *sh, int id) {
   printf("Writer %d started (pid %d)\n", id, getpid());
 
   for (int i = 0; i < WRITES_PER_WRITER; i++) {
-    // Entry section: request exclusive lock
+    // Entry section: acquire turnstile to block arriving readers, then request exclusive lock
+    sem_wait(SEM_TURNSTILE);
     sem_wait(SEM_WRT);
 
     // Writing Critical Section
@@ -94,8 +98,9 @@ void writer(struct rw_shared *sh, int id) {
 
     sh->active_writers--;
 
-    // Exit section: release exclusive lock
+    // Exit section: release exclusive lock and turnstile
     sem_post(SEM_WRT);
+    sem_post(SEM_TURNSTILE);
 
     pause(2); // remainder delay to give readers opportunities
   }
@@ -105,7 +110,7 @@ void writer(struct rw_shared *sh, int id) {
 
 int main(int argc, char *argv[]) {
   printf("============================================================\n");
-  printf("Readers-Writers Problem Simulation (Readers-Preference)\n");
+  printf("Readers-Writers Problem Simulation (Fair Turnstile - Starvation-Free)\n");
   printf("Readers = %d, Writers = %d\n", NUM_READERS, NUM_WRITERS);
   printf("Reads per reader = %d, Writes per writer = %d\n",
          READS_PER_READER, WRITES_PER_WRITER);
@@ -129,7 +134,7 @@ int main(int argc, char *argv[]) {
   // Initialize semaphores
   // SEM_MUTEX (0) = 1 protects read_count
   // SEM_WRT   (1) = 1 protects writing critical section
-  if (sem_init(SEM_MUTEX, 1) < 0 || sem_init(SEM_WRT, 1) < 0) {
+  if (sem_init(SEM_MUTEX, 1) < 0 || sem_init(SEM_WRT, 1) < 0 || sem_init(SEM_TURNSTILE, 1) < 0) {
     printf("Error: sem_init failed\n");
     exit(1);
   }
